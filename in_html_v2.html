@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Room Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.4;
+            backdrop-filter: blur(10px);
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 1px;
+        }
+        #crosshair::before {
+            width: 2px;
+            height: 20px;
+            left: 9px;
+            top: 0;
+        }
+        #crosshair::after {
+            width: 20px;
+            height: 2px;
+            left: 0;
+            top: 9px;
+        }
+        #status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            backdrop-filter: blur(10px);
+            max-height: 80vh;
+            overflow-y: auto;
+            width: 200px;
+        }
+        #controls input[type="range"] {
+            width: 100px;
+            margin: 5px 0;
+        }
+        #controls input[type="color"] {
+            width: 100px;
+            height: 25px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 4px;
+        }
+        #controls label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 11px;
+        }
+        #controls hr {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <strong>Controls:</strong><br>
+        W/S: Move Forward/Backward<br>
+        A/D: Strafe Left/Right<br>
+        Space: Jump<br>
+        Mouse: Look Around<br>
+        ESC: Exit pointer lock<br>
+        <strong>Click anywhere to start!</strong>
+    </div>
+    
+    <div id="controls">
+        <strong>Movement:</strong><br>
+        <label>Move Speed: <span id="speedValue">8</span></label>
+        <input type="range" id="speedSlider" min="1" max="20" value="8" step="0.5">
+        
+        <label>Mouse Sensitivity: <span id="sensitivityValue">2</span></label>
+        <input type="range" id="sensitivitySlider" min="0.5" max="5" value="2" step="0.1">
+        
+        <hr>
+        <strong>Wall Colors:</strong><br>
+        <label>Front Wall:</label>
+        <input type="color" id="frontWallColor" value="#ffffff">
+        
+        <label>Back Wall:</label>
+        <input type="color" id="backWallColor" value="#ffffff">
+        
+        <label>Left Wall:</label>
+        <input type="color" id="leftWallColor" value="#ffffff">
+        
+        <label>Right Wall:</label>
+        <input type="color" id="rightWallColor" value="#ffffff">
+        
+        <label>Floor Color:</label>
+        <input type="color" id="floorColor" value="#808080">
+        
+        <hr>
+        <strong>Lighting:</strong><br>
+        <label>Ambient Light: <span id="ambientValue">0.4</span></label>
+        <input type="range" id="ambientSlider" min="0" max="1" value="0.4" step="0.1">
+        
+        <label>Sun Intensity: <span id="sunIntensityValue">0.8</span></label>
+        <input type="range" id="sunIntensitySlider" min="0" max="2" value="0.8" step="0.1">
+        
+        <label>Sun Angle X: <span id="sunAngleXValue">5</span></label>
+        <input type="range" id="sunAngleXSlider" min="-10" max="10" value="5" step="0.5">
+        
+        <label>Sun Angle Y: <span id="sunAngleYValue">10</span></label>
+        <input type="range" id="sunAngleYSlider" min="3" max="20" value="10" step="0.5">
+        
+        <label>Sun Angle Z: <span id="sunAngleZValue">5</span></label>
+        <input type="range" id="sunAngleZSlider" min="-10" max="10" value="5" step="0.5">
+        
+        <label>Room Light: <span id="roomLightValue">0.6</span></label>
+        <input type="range" id="roomLightSlider" min="0" max="2" value="0.6" step="0.1">
+    </div>
+    
+    <div id="status">Controls: Not locked (Click to activate)</div>
+    <div id="crosshair"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // ===== CUSTOMIZABLE SETTINGS =====
+        const CONFIG = {
+            // Movement settings
+            moveSpeed: 8,           // Character movement speed
+            mouseSensitivity: 2,    // Mouse look sensitivity
+            jumpHeight: 6,          // Jump force
+            gravity: -20,           // Gravity strength
+            playerHeight: 1.7,      // Player eye height
+            playerRadius: 0.4,      // Player collision radius
+            
+            // Room settings
+            roomSize: { width: 15, height: 6, depth: 15 },
+            
+            // Visual settings
+            colors: {
+                background: 0x87CEEB,
+                walls: {
+                    front: 0xFFFFFF,
+                    back: 0xFFFFFF,
+                    left: 0xFFFFFF,
+                    right: 0xFFFFFF
+                },
+                floor: 0x808080,
+                ceiling: 0xDDDDDD,
+                furniture: {
+                    table: 0x8B4513,
+                    chair: 0xA0522D,
+                    bed: 0x4682B4
+                }
+            },
+            
+            // Lighting settings
+            lighting: {
+                ambient: 0.4,
+                sunIntensity: 0.8,
+                sunPosition: { x: 5, y: 10, z: 5 },
+                roomLight: 0.6
+            }
+        };
+
+        // ===== MAIN VARIABLES =====
+        let scene, camera, renderer, controls;
+        let walls = [];
+        let velocity = new THREE.Vector3();
+        let moveDirection = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false
+        };
+        let isJumping = false;
+        let isOnFloor = false;
+        let clock = new THREE.Clock();
+        let wallMeshes = {
+            front: null,
+            back: null,
+            left: null,
+            right: null
+        };
+        let floorMesh = null;
+        let lights = {
+            ambient: null,
+            directional: null,
+            point1: null,
+            point2: null
+        };
+
+        // ===== POINTER LOCK CONTROLS =====
+        class CustomPointerLockControls {
+            constructor(camera, domElement) {
+                this.camera = camera;
+                this.domElement = domElement;
+                this.isLocked = false;
+                
+                this.pitchObject = new THREE.Object3D();
+                this.yawObject = new THREE.Object3D();
+                
+                this.pitchObject.add(camera);
+                this.yawObject.add(this.pitchObject);
+                
+                this.minPolarAngle = 0;
+                this.maxPolarAngle = Math.PI;
+                
+                this.sensitivity = CONFIG.mouseSensitivity;
+                
+                this.onMouseMove = this.onMouseMove.bind(this);
+            }
+            
+            onMouseMove(event) {
+                if (!this.isLocked) return;
+                
+                const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+                const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+                
+                this.yawObject.rotation.y -= movementX * 0.002 * this.sensitivity;
+                this.pitchObject.rotation.x -= movementY * 0.002 * this.sensitivity;
+                
+                this.pitchObject.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitchObject.rotation.x));
+            }
+            
+            lock() {
+                this.isLocked = true;
+                document.addEventListener('mousemove', this.onMouseMove, false);
+            }
+            
+            unlock() {
+                this.isLocked = false;
+                document.removeEventListener('mousemove', this.onMouseMove, false);
+            }
+            
+            getObject() {
+                return this.yawObject;
+            }
+            
+            getDirection() {
+                const direction = new THREE.Vector3(0, 0, -1);
+                direction.applyQuaternion(this.yawObject.quaternion);
+                return direction;
+            }
+            
+            setSensitivity(value) {
+                this.sensitivity = value;
+            }
+        }
+
+        // ===== INITIALIZATION =====
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(CONFIG.colors.background);
+            scene.fog = new THREE.Fog(CONFIG.colors.background, 10, 50);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = CONFIG.playerHeight;
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Setup custom controls
+            controls = new CustomPointerLockControls(camera, document.body);
+            scene.add(controls.getObject());
+            
+            // Position player in center of room
+            controls.getObject().position.set(0, CONFIG.playerHeight, 0);
+
+            // Setup pointer lock
+            setupPointerLock();
+
+            // Create room
+            createRoom();
+
+            // Add lighting
+            addLights();
+
+            // Setup event listeners
+            setupEventListeners();
+            setupCustomizationControls();
+
+            // Start animation loop
+            animate();
+        }
+
+        // ===== POINTER LOCK SETUP =====
+        function setupPointerLock() {
+            const blocker = document.body;
+            
+            blocker.addEventListener('click', () => {
+                if (!controls.isLocked) {
+                    document.body.requestPointerLock();
+                }
+            });
+
+            const pointerLockChange = () => {
+                if (document.pointerLockElement === document.body) {
+                    controls.lock();
+                    document.getElementById('status').textContent = "Controls: Locked (Press ESC to exit)";
+                } else {
+                    controls.unlock();
+                    document.getElementById('status').textContent = "Controls: Not locked (Click to activate)";
+                }
+            };
+
+            document.addEventListener('pointerlockchange', pointerLockChange);
+            document.addEventListener('mozpointerlockchange', pointerLockChange);
+            document.addEventListener('webkitpointerlockchange', pointerLockChange);
+        }
+
+        // ===== ROOM CREATION =====
+        function createRoom() {
+            const { width, height, depth } = CONFIG.roomSize;
+            
+            // Floor
+            const floorGeometry = new THREE.PlaneGeometry(width, depth);
+            const floorMaterial = new THREE.MeshLambertMaterial({ 
+                color: CONFIG.colors.floor,
+                side: THREE.DoubleSide
+            });
+            floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
+            floorMesh.rotation.x = -Math.PI / 2;
+            floorMesh.receiveShadow = true;
+            scene.add(floorMesh);
+
+            // Ceiling
+            const ceilingGeometry = new THREE.PlaneGeometry(width, depth);
+            const ceilingMaterial = new THREE.MeshLambertMaterial({ 
+                color: CONFIG.colors.ceiling,
+                side: THREE.DoubleSide
+            });
+            const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.y = height;
+            ceiling.receiveShadow = true;
+            scene.add(ceiling);
+
+            // Create walls
+            createWalls(width, height, depth);
+            
+            // Add furniture
+            addFurniture();
+        }
+
+        function createWalls(width, height, depth) {
+            // Create individual materials for each wall
+            const frontWallMaterial = new THREE.MeshLambertMaterial({ 
+                color: CONFIG.colors.walls.front,
+                side: THREE.DoubleSide
+            });
+            const backWallMaterial = new THREE.MeshLambertMaterial({ 
+                color: CONFIG.colors.walls.back,
+                side: THREE.DoubleSide
+            });
+            const leftWallMaterial = new THREE.MeshLambertMaterial({ 
+                color: CONFIG.colors.walls.left,
+                side: THREE.DoubleSide
+            });
+            const rightWallMaterial = new THREE.MeshLambertMaterial({ 
+                color: CONFIG.colors.walls.right,
+                side: THREE.DoubleSide
+            });
+
+            // Back wall
+            const backWall = createWall(width, height, 0, height/2, -depth/2, backWallMaterial);
+            scene.add(backWall.mesh);
+            walls.push(backWall.collider);
+            wallMeshes.back = backWall.mesh;
+
+            // Front wall
+            const frontWall = createWall(width, height, 0, height/2, depth/2, frontWallMaterial);
+            scene.add(frontWall.mesh);
+            walls.push(frontWall.collider);
+            wallMeshes.front = frontWall.mesh;
+
+            // Left wall
+            const leftWall = createWall(depth, height, -width/2, height/2, 0, leftWallMaterial, Math.PI/2);
+            scene.add(leftWall.mesh);
+            walls.push(leftWall.collider);
+            wallMeshes.left = leftWall.mesh;
+
+            // Right wall
+            const rightWall = createWall(depth, height, width/2, height/2, 0, rightWallMaterial, Math.PI/2);
+            scene.add(rightWall.mesh);
+            walls.push(rightWall.collider);
+            wallMeshes.right = rightWall.mesh;
+        }
+
+        function createWall(width, height, x, y, z, material, rotationY = 0) {
+            const wallMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(width, height),
+                material
+            );
+            wallMesh.position.set(x, y, z);
+            wallMesh.rotation.y = rotationY;
+            wallMesh.receiveShadow = true;
+            wallMesh.castShadow = true;
+
+            const collider = {
+                position: new THREE.Vector3(x, 0, z),
+                width: width,
+                height: height,
+                depth: 0.2,
+                rotationY: rotationY
+            };
+
+            return { mesh: wallMesh, collider: collider };
+        }
+
+        // ===== FURNITURE =====
+        function addFurniture() {
+            // Table
+            const tableGeometry = new THREE.BoxGeometry(3, 0.6, 1.5);
+            const tableMaterial = new THREE.MeshLambertMaterial({ color: CONFIG.colors.furniture.table });
+            const table = new THREE.Mesh(tableGeometry, tableMaterial);
+            table.position.set(0, 0.3, -4);
+            table.castShadow = true;
+            table.receiveShadow = true;
+            scene.add(table);
+            
+            walls.push({
+                position: new THREE.Vector3(0, 0, -4),
+                width: 3,
+                height: 0.6,
+                depth: 1.5,
+                rotationY: 0
+            });
+
+            // Chairs
+            for (let i = 0; i < 2; i++) {
+                const chairGeometry = new THREE.BoxGeometry(0.6, 1.2, 0.6);
+                const chairMaterial = new THREE.MeshLambertMaterial({ color: CONFIG.colors.furniture.chair });
+                const chair = new THREE.Mesh(chairGeometry, chairMaterial);
+                chair.position.set((i - 0.5) * 2, 0.6, -2.5);
+                chair.castShadow = true;
+                chair.receiveShadow = true;
+                scene.add(chair);
+                
+                walls.push({
+                    position: new THREE.Vector3((i - 0.5) * 2, 0, -2.5),
+                    width: 0.6,
+                    height: 1.2,
+                    depth: 0.6,
+                    rotationY: 0
+                });
+            }
+
+            // Bed
+            const bedGeometry = new THREE.BoxGeometry(4, 0.6, 2.5);
+            const bedMaterial = new THREE.MeshLambertMaterial({ color: CONFIG.colors.furniture.bed });
+            const bed = new THREE.Mesh(bedGeometry, bedMaterial);
+            bed.position.set(-4, 0.3, 4);
+            bed.castShadow = true;
+            bed.receiveShadow = true;
+            scene.add(bed);
+            
+            walls.push({
+                position: new THREE.Vector3(-4, 0, 4),
+                width: 4,
+                height: 0.6,
+                depth: 2.5,
+                rotationY: 0
+            });
+
+            // Bookshelf
+            const bookshelfGeometry = new THREE.BoxGeometry(0.4, 4, 3);
+            const bookshelfMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const bookshelf = new THREE.Mesh(bookshelfGeometry, bookshelfMaterial);
+            bookshelf.position.set(6, 2, 0);
+            bookshelf.castShadow = true;
+            bookshelf.receiveShadow = true;
+            scene.add(bookshelf);
+            
+            walls.push({
+                position: new THREE.Vector3(6, 0, 0),
+                width: 0.4,
+                height: 4,
+                depth: 3,
+                rotationY: 0
+            });
+        }
+
+        // ===== LIGHTING =====
+        function addLights() {
+            // Ambient light
+            lights.ambient = new THREE.AmbientLight(0x404040, CONFIG.lighting.ambient);
+            scene.add(lights.ambient);
+
+            // Main directional light (sun)
+            lights.directional = new THREE.DirectionalLight(0xFFFFFF, CONFIG.lighting.sunIntensity);
+            lights.directional.position.set(
+                CONFIG.lighting.sunPosition.x, 
+                CONFIG.lighting.sunPosition.y, 
+                CONFIG.lighting.sunPosition.z
+            );
+            lights.directional.castShadow = true;
+            lights.directional.shadow.mapSize.width = 2048;
+            lights.directional.shadow.mapSize.height = 2048;
+            lights.directional.shadow.camera.near = 0.1;
+            lights.directional.shadow.camera.far = 50;
+            lights.directional.shadow.camera.left = -20;
+            lights.directional.shadow.camera.right = 20;
+            lights.directional.shadow.camera.top = 20;
+            lights.directional.shadow.camera.bottom = -20;
+            scene.add(lights.directional);
+
+            // Point lights for ambient room lighting
+            lights.point1 = new THREE.PointLight(0xFFE5B4, CONFIG.lighting.roomLight, 15);
+            lights.point1.position.set(0, 4, 0);
+            lights.point1.castShadow = true;
+            scene.add(lights.point1);
+
+            lights.point2 = new THREE.PointLight(0xFFE5B4, CONFIG.lighting.roomLight * 0.7, 10);
+            lights.point2.position.set(-5, 3, 5);
+            lights.point2.castShadow = true;
+            scene.add(lights.point2);
+        }
+
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            // Keyboard events
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+
+            // Window resize
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function onKeyDown(event) {
+            switch (event.code) {
+                case 'KeyW':
+                case 'ArrowUp':
+                    moveDirection.forward = true;
+                    break;
+                case 'KeyS':
+                case 'ArrowDown':
+                    moveDirection.backward = true;
+                    break;
+                case 'KeyA':
+                case 'ArrowLeft':
+                    moveDirection.left = true;
+                    break;
+                case 'KeyD':
+                case 'ArrowRight':
+                    moveDirection.right = true;
+                    break;
+                case 'Space':
+                    event.preventDefault();
+                    if (!isJumping && isOnFloor) {
+                        velocity.y = CONFIG.jumpHeight;
+                        isJumping = true;
+                        isOnFloor = false;
+                    }
+                    break;
+            }
+        }
+
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'KeyW':
+                case 'ArrowUp':
+                    moveDirection.forward = false;
+                    break;
+                case 'KeyS':
+                case 'ArrowDown':
+                    moveDirection.backward = false;
+                    break;
+                case 'KeyA':
+                case 'ArrowLeft':
+                    moveDirection.left = false;
+                    break;
+                case 'KeyD':
+                case 'ArrowRight':
+                    moveDirection.right = false;
+                    break;
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // ===== CUSTOMIZATION CONTROLS =====
+        function setupCustomizationControls() {
+            const speedSlider = document.getElementById('speedSlider');
+            const speedValue = document.getElementById('speedValue');
+            const sensitivitySlider = document.getElementById('sensitivitySlider');
+            const sensitivityValue = document.getElementById('sensitivityValue');
+            
+            // Wall color pickers
+            const frontWallColorPicker = document.getElementById('frontWallColor');
+            const backWallColorPicker = document.getElementById('backWallColor');
+            const leftWallColorPicker = document.getElementById('leftWallColor');
+            const rightWallColorPicker = document.getElementById('rightWallColor');
+            const floorColorPicker = document.getElementById('floorColor');
+            
+            // Lighting controls
+            const ambientSlider = document.getElementById('ambientSlider');
+            const ambientValue = document.getElementById('ambientValue');
+            const sunIntensitySlider = document.getElementById('sunIntensitySlider');
+            const sunIntensityValue = document.getElementById('sunIntensityValue');
+            const sunAngleXSlider = document.getElementById('sunAngleXSlider');
+            const sunAngleXValue = document.getElementById('sunAngleXValue');
+            const sunAngleYSlider = document.getElementById('sunAngleYSlider');
+            const sunAngleYValue = document.getElementById('sunAngleYValue');
+            const sunAngleZSlider = document.getElementById('sunAngleZSlider');
+            const sunAngleZValue = document.getElementById('sunAngleZValue');
+            const roomLightSlider = document.getElementById('roomLightSlider');
+            const roomLightValue = document.getElementById('roomLightValue');
+
+            // Movement controls
+            speedSlider.addEventListener('input', (e) => {
+                CONFIG.moveSpeed = parseFloat(e.target.value);
+                speedValue.textContent = CONFIG.moveSpeed;
+            });
+
+            sensitivitySlider.addEventListener('input', (e) => {
+                CONFIG.mouseSensitivity = parseFloat(e.target.value);
+                sensitivityValue.textContent = CONFIG.mouseSensitivity;
+                controls.setSensitivity(CONFIG.mouseSensitivity);
+            });
+
+            // Wall color controls
+            frontWallColorPicker.addEventListener('input', (e) => {
+                const color = new THREE.Color(e.target.value);
+                CONFIG.colors.walls.front = color.getHex();
+                if (wallMeshes.front) {
+                    wallMeshes.front.material.color.setHex(color.getHex());
+                }
+            });
+
+            backWallColorPicker.addEventListener('input', (e) => {
+                const color = new THREE.Color(e.target.value);
+                CONFIG.colors.walls.back = color.getHex();
+                if (wallMeshes.back) {
+                    wallMeshes.back.material.color.setHex(color.getHex());
+                }
+            });
+
+            leftWallColorPicker.addEventListener('input', (e) => {
+                const color = new THREE.Color(e.target.value);
+                CONFIG.colors.walls.left = color.getHex();
+                if (wallMeshes.left) {
+                    wallMeshes.left.material.color.setHex(color.getHex());
+                }
+            });
+
+            rightWallColorPicker.addEventListener('input', (e) => {
+                const color = new THREE.Color(e.target.value);
+                CONFIG.colors.walls.right = color.getHex();
+                if (wallMeshes.right) {
+                    wallMeshes.right.material.color.setHex(color.getHex());
+                }
+            });
+
+            floorColorPicker.addEventListener('input', (e) => {
+                const color = new THREE.Color(e.target.value);
+                CONFIG.colors.floor = color.getHex();
+                if (floorMesh) {
+                    floorMesh.material.color.setHex(color.getHex());
+                }
+            });
+
+            // Lighting controls
+            ambientSlider.addEventListener('input', (e) => {
+                CONFIG.lighting.ambient = parseFloat(e.target.value);
+                ambientValue.textContent = CONFIG.lighting.ambient;
+                if (lights.ambient) {
+                    lights.ambient.intensity = CONFIG.lighting.ambient;
+                }
+            });
+
+            sunIntensitySlider.addEventListener('input', (e) => {
+                CONFIG.lighting.sunIntensity = parseFloat(e.target.value);
+                sunIntensityValue.textContent = CONFIG.lighting.sunIntensity;
+                if (lights.directional) {
+                    lights.directional.intensity = CONFIG.lighting.sunIntensity;
+                }
+            });
+
+            sunAngleXSlider.addEventListener('input', (e) => {
+                CONFIG.lighting.sunPosition.x = parseFloat(e.target.value);
+                sunAngleXValue.textContent = CONFIG.lighting.sunPosition.x;
+                if (lights.directional) {
+                    lights.directional.position.x = CONFIG.lighting.sunPosition.x;
+                }
+            });
+
+            sunAngleYSlider.addEventListener('input', (e) => {
+                CONFIG.lighting.sunPosition.y = parseFloat(e.target.value);
+                sunAngleYValue.textContent = CONFIG.lighting.sunPosition.y;
+                if (lights.directional) {
+                    lights.directional.position.y = CONFIG.lighting.sunPosition.y;
+                }
+            });
+
+            sunAngleZSlider.addEventListener('input', (e) => {
+                CONFIG.lighting.sunPosition.z = parseFloat(e.target.value);
+                sunAngleZValue.textContent = CONFIG.lighting.sunPosition.z;
+                if (lights.directional) {
+                    lights.directional.position.z = CONFIG.lighting.sunPosition.z;
+                }
+            });
+
+            roomLightSlider.addEventListener('input', (e) => {
+                CONFIG.lighting.roomLight = parseFloat(e.target.value);
+                roomLightValue.textContent = CONFIG.lighting.roomLight;
+                if (lights.point1) {
+                    lights.point1.intensity = CONFIG.lighting.roomLight;
+                }
+                if (lights.point2) {
+                    lights.point2.intensity = CONFIG.lighting.roomLight * 0.7;
+                }
+            });
+        }
+
+        // ===== COLLISION DETECTION =====
+        function checkCollision(newPosition) {
+            const halfWidth = CONFIG.playerRadius;
+            const halfDepth = CONFIG.playerRadius;
+            
+            for (const wall of walls) {
+                const localPlayerPos = new THREE.Vector3().copy(newPosition);
+                localPlayerPos.sub(wall.position);
+                
+                if (wall.rotationY !== 0) {
+                    const angle = -wall.rotationY;
+                    const x = localPlayerPos.x * Math.cos(angle) - localPlayerPos.z * Math.sin(angle);
+                    const z = localPlayerPos.x * Math.sin(angle) + localPlayerPos.z * Math.cos(angle);
+                    localPlayerPos.x = x;
+                    localPlayerPos.z = z;
+                }
+                
+                const wallHalfWidth = wall.width / 2;
+                const wallHalfDepth = wall.depth / 2;
+                
+                if (Math.abs(localPlayerPos.x) < wallHalfWidth + halfWidth &&
+                    Math.abs(localPlayerPos.z) < wallHalfDepth + halfDepth &&
+                    newPosition.y < wall.height + CONFIG.playerHeight) {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        // ===== MOVEMENT UPDATE =====
+        function updateMovement(delta) {
+            if (!controls.isLocked) return;
+            
+            velocity.x = 0;
+            velocity.z = 0;
+
+            const forward = new THREE.Vector3();
+            forward.setFromMatrixColumn(controls.getObject().matrix, 0);
+            forward.crossVectors(controls.getObject().up, forward);
+
+            const right = new THREE.Vector3();
+            right.setFromMatrixColumn(controls.getObject().matrix, 0);
+
+            if (moveDirection.forward) {
+                velocity.x += forward.x * CONFIG.moveSpeed;
+                velocity.z += forward.z * CONFIG.moveSpeed;
+            }
+            if (moveDirection.backward) {
+                velocity.x -= forward.x * CONFIG.moveSpeed;
+                velocity.z -= forward.z * CONFIG.moveSpeed;
+            }
+            if (moveDirection.left) {
+                velocity.x -= right.x * CONFIG.moveSpeed;
+                velocity.z -= right.z * CONFIG.moveSpeed;
+            }
+            if (moveDirection.right) {
+                velocity.x += right.x * CONFIG.moveSpeed;
+                velocity.z += right.z * CONFIG.moveSpeed;
+            }
+
+            // Apply gravity
+            velocity.y += CONFIG.gravity * delta;
+
+            // Calculate new position
+            const oldPosition = new THREE.Vector3().copy(controls.getObject().position);
+            const newPosition = new THREE.Vector3(
+                oldPosition.x + velocity.x * delta,
+                oldPosition.y + velocity.y * delta,
+                oldPosition.z + velocity.z * delta
+            );
+
+            // Check for collisions
+            if (!checkCollision(newPosition)) {
+                controls.getObject().position.copy(newPosition);
+            } else {
+                // Try sliding along walls
+                const newXPosition = new THREE.Vector3(
+                    oldPosition.x + velocity.x * delta,
+                    newPosition.y,
+                    oldPosition.z
+                );
+                if (!checkCollision(newXPosition)) {
+                    controls.getObject().position.x = newXPosition.x;
+                }
+
+                const newZPosition = new THREE.Vector3(
+                    oldPosition.x,
+                    newPosition.y,
+                    oldPosition.z + velocity.z * delta
+                );
+                if (!checkCollision(newZPosition)) {
+                    controls.getObject().position.z = newZPosition.z;
+                }
+            }
+
+            // Floor collision
+            if (controls.getObject().position.y <= CONFIG.playerHeight) {
+                controls.getObject().position.y = CONFIG.playerHeight;
+                velocity.y = 0;
+                isJumping = false;
+                isOnFloor = true;
+            }
+
+            // Ceiling collision
+            if (controls.getObject().position.y >= CONFIG.roomSize.height - 0.1) {
+                controls.getObject().position.y = CONFIG.roomSize.height - 0.1;
+                velocity.y = 0;
+            }
+        }
+
+        // ===== ANIMATION LOOP =====
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            
+            updateMovement(delta);
+            
+            renderer.render(scene, camera);
+        }
+
+        // ===== START APPLICATION =====
+        init();
+    </script>
+</body>
+</html>
